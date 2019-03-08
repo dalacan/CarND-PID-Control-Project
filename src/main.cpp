@@ -30,7 +30,7 @@ string hasData(string s) {
   return "";
 }
 
-int main() {
+int main(int argc, char** argv) {
   uWS::Hub h;
 
   PID pid;
@@ -38,7 +38,39 @@ int main() {
    * TODO: Initialize the pid variable.
    */
 
-  h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, 
+  #ifdef DEBUG
+    printf("Running debug build\n");
+  #else
+    printf("Running release build\n");
+  #endif
+
+  bool twiddle_enabled = false;
+  std::cout << "Initialize steering pid" << std::endl;
+  if(argc > 1) {
+    pid.Init(atof(argv[1]), atof(argv[2]), atof(argv[3]));
+  } else {
+    //    pid.Init(0.3, 0, 0);
+    pid.Init(0.2, 0.004, 3.0);
+//   pid.Init(0.5, 0, 2.5);
+//   pid.Init(0.1, 0.001, 0);
+//   pid.Init(0.1, 0.001, 3);
+//   pid.Init(0, 0, 0);
+  }
+
+  if(argc >4) {
+    if(atoi(argv[4]) == 1) {
+      std::cout << "Twiddle enabled" << std::endl;
+      twiddle_enabled = true;
+    }
+  }
+
+  PID pid_throttle;
+  std::cout << "Initialize throttle pid" << std::endl;
+//  pid_throttle.Init(0.9, 0, 0.1);
+  pid_throttle.Init(0.9, 0, 2.87);
+
+
+  h.onMessage([&pid, &pid_throttle, &twiddle_enabled](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -55,22 +87,44 @@ int main() {
           // j[1] is the data JSON object
           double cte = std::stod(j[1]["cte"].get<string>());
           double speed = std::stod(j[1]["speed"].get<string>());
-          double angle = std::stod(j[1]["steering_angle"].get<string>());
+//          double angle = std::stod(j[1]["steering_angle"].get<string>());
           double steer_value;
           /**
-           * TODO: Calculate steering value here, remember the steering value is
+           * Calculate steering value here, remember the steering value is
            *   [-1, 1].
            * NOTE: Feel free to play around with the throttle and speed.
            *   Maybe use another PID controller to control the speed!
            */
-          
+          double throttle;
+          pid.UpdateError(cte);
+
+          // Get steering value
+          steer_value = pid.TotalError();
+
+          // Apply twiddle to steering pid
+          if(twiddle_enabled) {
+            pid.Twiddle(0.1);
+          }
+
+  //        double average_squared_err = pid.AverageSquaredError();
+
+          // Throttle depends on the steering value, rate of change of steering value
+          pid_throttle.UpdateError(steer_value);
+          throttle = pid_throttle.ThrottleOutput();
+
+          // Apply twiddle to throttle pid
+//          pid_throttle.Twiddle();
+
           // DEBUG
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value 
+          std::cout << "CTE: " << cte << " Steering Value: " << steer_value
+//                    << " Counter: " << pid.counter << " Avg Err: " << average_squared_err
+                    << " Speed: " << speed << " Throttle: " << throttle
                     << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = throttle;
+//          msgJson["throttle"] = 0.3;    // 0.3
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
