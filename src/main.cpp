@@ -1,3 +1,7 @@
+//#ifndef DEBUG
+//#define DEBUG 0
+//#endif
+
 #include <math.h>
 #include <uWS/uWS.h>
 #include <iostream>
@@ -34,43 +38,41 @@ int main(int argc, char** argv) {
   uWS::Hub h;
 
   PID pid;
+  bool steering_twiddle_enabled = false;
+  bool throttle_twiddle_enabled = false;
   /**
-   * TODO: Initialize the pid variable.
+   * Initialize the pid variable.
    */
-
   #ifdef DEBUG
-    printf("Running debug build\n");
-  #else
-    printf("Running release build\n");
+    std::cout << "Debugging enabled..." << std::endl;
   #endif
 
-  bool twiddle_enabled = false;
   std::cout << "Initialize steering pid" << std::endl;
   if(argc > 1) {
     pid.Init(atof(argv[1]), atof(argv[2]), atof(argv[3]));
   } else {
-    //    pid.Init(0.3, 0, 0);
     pid.Init(0.2, 0.004, 3.0);
-//   pid.Init(0.5, 0, 2.5);
-//   pid.Init(0.1, 0.001, 0);
-//   pid.Init(0.1, 0.001, 3);
-//   pid.Init(0, 0, 0);
   }
 
   if(argc >4) {
     if(atoi(argv[4]) == 1) {
-      std::cout << "Twiddle enabled" << std::endl;
-      twiddle_enabled = true;
+      std::cout << "Steering Twiddle enabled" << std::endl;
+      steering_twiddle_enabled = true;
+    }
+  }
+
+  if(argc >5) {
+    if(atoi(argv[5]) == 1) {
+      std::cout << "Throttle Twiddle enabled" << std::endl;
+      throttle_twiddle_enabled = true;
     }
   }
 
   PID pid_throttle;
   std::cout << "Initialize throttle pid" << std::endl;
-//  pid_throttle.Init(0.9, 0, 0.1);
   pid_throttle.Init(0.9, 0, 2.87);
 
-
-  h.onMessage([&pid, &pid_throttle, &twiddle_enabled](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&pid, &pid_throttle, &steering_twiddle_enabled, &throttle_twiddle_enabled](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -86,8 +88,12 @@ int main(int argc, char** argv) {
         if (event == "telemetry") {
           // j[1] is the data JSON object
           double cte = std::stod(j[1]["cte"].get<string>());
+
+          #ifdef DEBUG
           double speed = std::stod(j[1]["speed"].get<string>());
 //          double angle = std::stod(j[1]["steering_angle"].get<string>());
+          #endif
+
           double steer_value;
           /**
            * Calculate steering value here, remember the steering value is
@@ -102,29 +108,40 @@ int main(int argc, char** argv) {
           steer_value = pid.TotalError();
 
           // Apply twiddle to steering pid
-          if(twiddle_enabled) {
+          if(steering_twiddle_enabled) {
             pid.Twiddle(0.1);
           }
 
-  //        double average_squared_err = pid.AverageSquaredError();
-
+          /**
+           * Set the raw steering value as the throttle's 'cross track error'.
+           * By using the steering value, the throttle output can be calculated to be be inversely proportional
+           * to the steering value and rate of change of the steering value.
+           * The integral component is ignored as it is assumed that there is no throttle bias
+           */
           // Throttle depends on the steering value, rate of change of steering value
-          pid_throttle.UpdateError(steer_value);
+          pid_throttle.UpdateError(pid.TotalError());
           throttle = pid_throttle.ThrottleOutput();
 
           // Apply twiddle to throttle pid
-//          pid_throttle.Twiddle();
+          if(throttle_twiddle_enabled) {
+            pid_throttle.Twiddle();
+          }
 
           // DEBUG
+          #ifdef DEBUG
+          double average_squared_err = pid.AverageSquaredError();
+
           std::cout << "CTE: " << cte << " Steering Value: " << steer_value
-//                    << " Counter: " << pid.counter << " Avg Err: " << average_squared_err
+                    << " Counter: " << pid.counter << " Avg Err: " << average_squared_err
                     << " Speed: " << speed << " Throttle: " << throttle
                     << std::endl;
+          #endif
+          
+          if(pid.counter == 150) { ws.close(); }
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle;
-//          msgJson["throttle"] = 0.3;    // 0.3
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);

@@ -3,10 +3,6 @@
 #include <iostream>
 #include <math.h>
 
-/**
- * TODO: Complete the PID class. You may add any additional desired functions.
- */
-
 PID::PID() {}
 
 PID::~PID() {}
@@ -26,7 +22,6 @@ void PID::Init(double Kp_, double Ki_, double Kd_) {
   error = 0;
 
   std::cout << "p: " << Kp << " i: " << Ki << " d: " << Kd  << std::endl;
-
 }
 
 void PID::UpdateError(double cte) {
@@ -51,11 +46,8 @@ double PID::TotalError() {
   return -Kp * p_error - Kd * d_error - Ki * i_error;
 }
 
-double PID::SteeringOutput() {
+double PID::SteeringOutput(double max_steering_angle) {
     double output = TotalError();
-
-    // TODO: Define max steering angle
-    double max_steering_angle = 1;
 
     if(output > max_steering_angle)
         output = max_steering_angle;
@@ -65,7 +57,7 @@ double PID::SteeringOutput() {
     return output;
 }
 
-double PID::ThrottleOutput(double max_throttle, double min_throttle) {
+double PID::ThrottleOutput(double min_throttle, double max_throttle) {
   /**
    * Calculate throttle output
    */
@@ -104,10 +96,14 @@ void PID::Twiddle(double tolerance) {
               << " i: " << Ki << " dp_i: " << dp_i
               << std::endl;
     std::cout << "best error: " << best_error << " error: " << error/((counter % batch_size) +1)<< std::endl;
+    std::cout << "Best p: " << best_p << " Best i: " << best_i << " Best d: " << best_d << std::endl;
 
     // Initialize first best error
     if (counter == batch_size) {
       best_error = total_error / batch_size;
+      best_p = Kp;
+      best_i = Ki;
+      best_d = Kd;
     }
 
     if (counter >= batch_size) {
@@ -128,6 +124,10 @@ void PID::Twiddle(double tolerance) {
         error = 0;  // Reset error
         if (err < best_error) {
           best_error = err;
+          best_p = Kp;
+          best_i = Ki;
+          best_d = Kd;
+
           // Increment coefficient modifier
           IncrementCoefficientModifier(coeff);
 
@@ -153,6 +153,9 @@ void PID::Twiddle(double tolerance) {
         error = 0;  // Reset error
         if (err < best_error) {
           best_error = err;
+          best_p = Kp;
+          best_i = Ki;
+          best_d = Kd;
           // Increment coefficient modifier
           IncrementCoefficientModifier(coeff);
         } else {
