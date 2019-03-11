@@ -105,12 +105,13 @@ class PID {
   double Ki;
   double Kd;
 
-  bool twiddle = true;
+  bool twiddle_enabled = false;
+  bool twiddle_running = true;
   /**
    * Twiddle batch size
    */
-  int batch_size = 50;
-  double twiddle_tolerance = 0.2;
+  int twiddle_batch_size;
+  double twiddle_tolerance;
 
   /**
    * Coefficient modifiers used by twiddle

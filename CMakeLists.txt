@@ -8,6 +8,12 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif(NOT CMAKE_BUILD_TYPE)
 
+IF(CMAKE_BUILD_TYPE MATCHES Debug)
+    message("Debug build.")
+ELSE()
+    message("Release build.")
+ENDIF()
+
 cmake_minimum_required (VERSION 3.5)
 
 add_definitions(-std=c++11)

@@ -26,20 +26,20 @@ void PID::Init(double Kp_, double Ki_, double Kd_) {
 
 void PID::InitTwiddle(double tol, int batch_size, double dp, double di, double dd) {
   // Enabled twiddle
-  twiddle = true;
+  twiddle_enabled = true;
 
   // Set twiddle parameters
   twiddle_tolerance = tol;
-  batch_size = batch_size;
+  twiddle_batch_size = batch_size;
 
   dp_p = dp;
   dp_i = di;
   dp_d = dd;
 }
 
-void PID::InitThrottle(double min_throttle, double max_throttle) {
-  min_throttle = min_throttle;
-  max_throttle = max_throttle;
+void PID::InitThrottle(double min, double max) {
+  min_throttle = min;
+  max_throttle = max;
 }
 
 void PID::UpdateError(double cte) {
@@ -107,87 +107,89 @@ double PID::AverageSquaredError() {
 }
 
 void PID::Twiddle() {
-  if(twiddle) {
-    std::cout << "counter: " << counter << " coeff: " << coeff << " substate: " << twiddle_state << " batch " << (counter % batch_size) << std::endl;
-    std::cout << "p: " << Kp << " dp_p: " << dp_p
-              << " d: " << Kd << " dp_d: " << dp_d
-              << " i: " << Ki << " dp_i: " << dp_i
-              << std::endl;
-    std::cout << "best error: " << best_error << " error: " << error/((counter % batch_size) +1)<< std::endl;
-    std::cout << "Best p: " << best_p << " Best i: " << best_i << " Best d: " << best_d << std::endl;
+  if(twiddle_enabled) {
+    if(twiddle_running) {
+      std::cout << "counter: " << counter << " coeff: " << coeff << " substate: " << twiddle_state << " batch " << (counter % twiddle_batch_size) << std::endl;
+      std::cout << "p: " << Kp << " dp_p: " << dp_p
+                << " d: " << Kd << " dp_d: " << dp_d
+                << " i: " << Ki << " dp_i: " << dp_i
+                << std::endl;
+      std::cout << "best error: " << best_error << " error: " << error/((counter % twiddle_batch_size) +1)<< std::endl;
+      std::cout << "Best p: " << best_p << " Best i: " << best_i << " Best d: " << best_d << std::endl;
 
-    // Initialize first best error
-    if (counter == batch_size) {
-      best_error = total_error / batch_size;
-      best_p = Kp;
-      best_i = Ki;
-      best_d = Kd;
-    }
+      // Initialize first best error
+      if (counter == twiddle_batch_size) {
+        best_error = total_error / twiddle_batch_size;
+        best_p = Kp;
+        best_i = Ki;
+        best_d = Kd;
+      }
 
-    if (counter >= batch_size) {
-      // Increment coefficient
-      if (twiddle_state == 0) {
-        IncrementCoefficient(coeff);
-        twiddle_state = 1;  // Next measure increment
-      } else if (twiddle_state == 1 || twiddle_state == 3) {
-        // Measuring
-        error += pow(p_error, 2);
+      if (counter >= twiddle_batch_size) {
+        // Increment coefficient
+        if (twiddle_state == 0) {
+          IncrementCoefficient(coeff);
+          twiddle_state = 1;  // Next measure increment
+        } else if (twiddle_state == 1 || twiddle_state == 3) {
+          // Measuring
+          error += pow(p_error, 2);
 
-        if ((counter % batch_size) == 0) {
-          twiddle_state++;
-        }
-      } else if (twiddle_state == 2) {
-        // Compare error measurement from increment coefficient
-        double err = error / batch_size;
-        error = 0;  // Reset error
-        if (err < best_error) {
-          best_error = err;
-          best_p = Kp;
-          best_i = Ki;
-          best_d = Kd;
+          if ((counter % twiddle_batch_size) == 0) {
+            twiddle_state++;
+          }
+        } else if (twiddle_state == 2) {
+          // Compare error measurement from increment coefficient
+          double err = error / twiddle_batch_size;
+          error = 0;  // Reset error
+          if (err < best_error) {
+            best_error = err;
+            best_p = Kp;
+            best_i = Ki;
+            best_d = Kd;
 
-          // Increment coefficient modifier
-          IncrementCoefficientModifier(coeff);
+            // Increment coefficient modifier
+            IncrementCoefficientModifier(coeff);
+
+            // Set to next coefficient to apply twiddle
+            NextCoefficient();
+
+            // Return to state 0 (increment coefficient)
+            twiddle_state = 0;
+
+            // Check if coefficient modifier hit tolerance limit
+            TolerenceCheck(twiddle_tolerance);
+
+          } else {
+            // Best error not found, decrement coefficient
+            DecrementCoefficient(coeff);
+
+            // Next measure error for decreased coefficient
+            twiddle_state = 3;
+          }
+        } else if (twiddle_state == 4) {
+          // Compare error measurement from decreased coefficient
+          double err = error / twiddle_batch_size;
+          error = 0;  // Reset error
+          if (err < best_error) {
+            best_error = err;
+            best_p = Kp;
+            best_i = Ki;
+            best_d = Kd;
+            // Increment coefficient modifier
+            IncrementCoefficientModifier(coeff);
+          } else {
+            // Best error not found, decrement coefficient modifier
+            IncrementCoefficient(coeff);
+            DecrementCoefficientModifier(coeff);
+          }
 
           // Set to next coefficient to apply twiddle
           NextCoefficient();
-
-          // Return to state 0 (increment coefficient)
           twiddle_state = 0;
 
           // Check if coefficient modifier hit tolerance limit
           TolerenceCheck(twiddle_tolerance);
-
-        } else {
-          // Best error not found, decrement coefficient
-          DecrementCoefficient(coeff);
-
-          // Next measure error for decreased coefficient
-          twiddle_state = 3;
         }
-      } else if (twiddle_state == 4) {
-        // Compare error measurement from decreased coefficient
-        double err = error / batch_size;
-        error = 0;  // Reset error
-        if (err < best_error) {
-          best_error = err;
-          best_p = Kp;
-          best_i = Ki;
-          best_d = Kd;
-          // Increment coefficient modifier
-          IncrementCoefficientModifier(coeff);
-        } else {
-          // Best error not found, decrement coefficient modifier
-          IncrementCoefficient(coeff);
-          DecrementCoefficientModifier(coeff);
-        }
-
-        // Set to next coefficient to apply twiddle
-        NextCoefficient();
-        twiddle_state = 0;
-
-        // Check if coefficient modifier hit tolerance limit
-        TolerenceCheck(twiddle_tolerance);
       }
     }
   }
@@ -263,5 +265,5 @@ void PID::NextCoefficient() {
 }
 
 void PID::TolerenceCheck(double tolerance) {
-  if((dp_d + dp_p + dp_i) <= tolerance) { twiddle = false; }
+  if((dp_d + dp_p + dp_i) <= tolerance) { twiddle_running = false; }
 }
