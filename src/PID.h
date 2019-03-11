@@ -20,6 +20,18 @@ class PID {
   void Init(double Kp_, double Ki_, double Kd_);
 
   /**
+   * Initialize Twiddle
+   * @param tol
+   * @param batch_size
+   * @param dp
+   * @param di
+   * @param dd
+   */
+  void InitTwiddle(double tol, int batch_size, double dp, double di, double dd);
+
+  void InitThrottle(double min_throttle = 0.1, double max_throttle = 0.3);
+
+  /**
    * Update the PID error variables given cross track error.
    * @param cte The current cross track error
    */
@@ -46,9 +58,9 @@ class PID {
    * @param max_throttle
    * @return
    */
-  double ThrottleOutput(double min_throttle = 0.1, double max_throttle = 0.3);
+  double ThrottleOutput();
 
-  void Twiddle(double tolerance = 0.2);
+  void Twiddle();
 
   void IncrementCoefficientModifier(int coeff);
   void DecrementCoefficientModifier(int coeff);
@@ -78,14 +90,12 @@ class PID {
   double best_i;
   double best_d;
 
-  /**
-   * Twiddle batch size
-   */
-  int batch_size = 50;
+  double min_throttle;
+  double max_throttle;
 
   /**
-   * Current error count within the twiddle cycle
-   */
+ * Current error count within the twiddle cycle
+ */
   double error;
 
   /**
@@ -95,12 +105,19 @@ class PID {
   double Ki;
   double Kd;
 
+  bool twiddle = true;
+  /**
+   * Twiddle batch size
+   */
+  int batch_size = 50;
+  double twiddle_tolerance = 0.2;
+
   /**
    * Coefficient modifiers used by twiddle
    */
   double dp_p = 0.1;
-  double dp_d = 1;
   double dp_i = 0.0001;
+  double dp_d = 1;
 
   /**
    * Track which coefficient is being updated
@@ -120,7 +137,7 @@ class PID {
    */
   int twiddle_state = 0; // 0 Increment coeef, 1 measure increased coeef, 2 compare increased coeff,  3 measure decreased coeef, 4 compare decrease coef
 
-  bool twiddle = true;
+
 
 };
 

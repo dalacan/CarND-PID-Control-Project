@@ -1,7 +1,3 @@
-//#ifndef DEBUG
-//#define DEBUG 0
-//#endif
-
 #include <math.h>
 #include <uWS/uWS.h>
 #include <iostream>
@@ -17,6 +13,8 @@ using std::string;
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
+
+bool pid_debug = false;
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -38,41 +36,147 @@ int main(int argc, char** argv) {
   uWS::Hub h;
 
   PID pid;
+
+  /**
+   * Preset steering PID values
+   */
+  double steering_p = 0.347387;
+  double steering_i = 0.000059049;
+  double steering_d = 4.93047;
+
   bool steering_twiddle_enabled = false;
+  double steering_twiddle_tol = 0.2;
+  double steering_twiddle_batch_size = 50;
+  double steering_dp_p = 0.1;
+  double steering_dp_i = 0.0001;
+  double steering_dp_d = 1;
+
+  /**
+   * Preset throttle PID values
+   */
+  double throttle_p = 0.9;
+  double throttle_i = 0;
+  double throttle_d = 2.87;
+
   bool throttle_twiddle_enabled = false;
+  double throttle_twiddle_tol = 0.2;
+  double throttle_twiddle_batch_size = 50;
+  double throttle_dp_p = 0.1;
+  double throttle_dp_i = 0.0001;
+  double throttle_dp_d = 1;
+
+  /**
+   * Preset throttle limits
+   */
+  double min_throttle = 0.1;
+  double max_throttle = 0.3;
+
+  string help_text = "Usage\n\n pid "
+                     "[options]\n\n"
+                     "Options\n"
+                     "-s <p> <i> <d>                                       = Set Steering PID values (-s 0.3 0.0001 3)\n"
+                     "-t <p> <i> <d>                                       = Set Throttle PID values (-t 0.9 0 2)\n"
+                     "-ws <tolerance> <batch_size>                         = Enable twiddle for steering and set tolerance \n"
+                     "                                                       and batch size (-ws 0.2 50)\n"
+                     "-ws <tolerance> <batch_size> <p_mod> <i_mod> <d_mod> = Enable twiddle for steering and set tolerance,\n"
+                     "                                                       batch size and pid modifiers (-ws 0.2 50 0.1 0.0001 1)\n"
+                     "-wt <tolerance> <batch_size>                         = Enable twiddle for throttle and set tolerance \n"
+                     "                                                       and batch size (-wt 0.2 50)\n"
+                     "-wt <tolerance> <batch_size> <p_mod> <i_mod> <d_mod> = Enable twiddle for throttle and set tolerance,\n"
+                     "                                                       batch size and pid modifiers (-wt 0.2 50 0.1 0.0001 1)\n"
+                     "-l <min_throttle> <max_throttle>                     = Set minimum and maximum throttle (-l 0.1 0.3)\n"
+                     "-d                                                   = Debug output enabled\n"
+                     "-h                                                   = Displays this help menu\n";
+
   /**
    * Initialize the pid variable.
    */
-  #ifdef DEBUG
-    std::cout << "Debugging enabled..." << std::endl;
-  #endif
+  // Handle application input
+  if(argc > 1) {
+    for (int i = 1; i < argc; i++) {
+      if (argv[i][0] == '-') {
+        switch (argv[i][1]) {
+          case 's':
+            std::cout << "Steering PID set" << std::endl;
+            steering_p = atof(argv[i + 1]);
+            steering_i = atof(argv[i + 2]);
+            steering_d = atof(argv[i + 3]);
+            break;
+          case 't':
+            std::cout << "Throttle PID set" << std::endl;
+            throttle_p = atof(argv[i + 1]);
+            throttle_i = atof(argv[i + 2]);
+            throttle_d = atof(argv[i + 3]);
+            break;
+          case 'w':
+            switch (argv[i][2]) {
+              case 's':
+                if (atof(argv[i + 1]) > 0) {
+                  std::cout << "Steering twiddle" << std::endl;
+                  steering_twiddle_enabled = true;
+                  steering_twiddle_tol = atof(argv[i + 1]);
+                  steering_twiddle_batch_size = atoi(argv[i + 2]);
+
+                  if ((i + 3) < argc && argv[i + 3][0] != '-') {
+                    std::cout << "Steering twiddle modifiers" << std::endl;
+                    steering_dp_p = atof(argv[i + 3]);
+                    steering_dp_i = atof(argv[i + 4]);
+                    steering_dp_d = atof(argv[i + 5]);
+                  }
+                }
+                break;
+              case 't':
+                if (atof(argv[i + 1]) > 0) {
+                  std::cout << "Throttle twiddle" << std::endl;
+                  throttle_twiddle_enabled = true;
+                  throttle_twiddle_tol = atof(argv[i + 1]);
+                  throttle_twiddle_batch_size = atoi(argv[i + 2]);
+
+                  if ((i + 3) <argc && argv[i + 3][0] != '-') {
+                    std::cout << "Throttle twiddle modifiers" << std::endl;
+                    throttle_dp_p = atof(argv[i + 3]);
+                    throttle_dp_i = atof(argv[i + 4]);
+                    throttle_dp_d = atof(argv[i + 5]);
+                  }
+                }
+            }
+            break;
+          case 'l':
+            std::cout << "Throttle limits" << std::endl;
+            min_throttle = atof(argv[i + 1]);
+            max_throttle = atof(argv[i + 2]);
+            break;
+          case 'd':
+            std::cout << "Debug enabled" << std::endl;
+            pid_debug = true;
+            break;
+          case 'h':
+              std::cout << help_text;
+              return 0;
+          default:
+            break;
+        }
+      }
+    }
+  }
 
   std::cout << "Initialize steering pid" << std::endl;
-  if(argc > 1) {
-    pid.Init(atof(argv[1]), atof(argv[2]), atof(argv[3]));
-  } else {
-    pid.Init(0.2, 0.004, 3.0);
-  }
+  pid.Init(steering_p, steering_i, steering_d);
 
-  if(argc >4) {
-    if(atoi(argv[4]) == 1) {
-      std::cout << "Steering Twiddle enabled" << std::endl;
-      steering_twiddle_enabled = true;
-    }
-  }
-
-  if(argc >5) {
-    if(atoi(argv[5]) == 1) {
-      std::cout << "Throttle Twiddle enabled" << std::endl;
-      throttle_twiddle_enabled = true;
-    }
+  if(steering_twiddle_enabled) {
+    pid.InitTwiddle(steering_twiddle_tol, steering_twiddle_batch_size, steering_dp_p, steering_dp_i, steering_dp_d);
   }
 
   PID pid_throttle;
   std::cout << "Initialize throttle pid" << std::endl;
-  pid_throttle.Init(0.9, 0, 2.87);
+  pid_throttle.Init(throttle_p, throttle_i, throttle_d);
+  pid_throttle.InitThrottle(min_throttle, max_throttle);
 
-  h.onMessage([&pid, &pid_throttle, &steering_twiddle_enabled, &throttle_twiddle_enabled](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  if(throttle_twiddle_enabled) {
+    pid.InitTwiddle(throttle_twiddle_tol, throttle_twiddle_batch_size, throttle_dp_p, throttle_dp_i, throttle_dp_d);
+  }
+
+  h.onMessage([&pid, &pid_throttle](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -89,10 +193,12 @@ int main(int argc, char** argv) {
           // j[1] is the data JSON object
           double cte = std::stod(j[1]["cte"].get<string>());
 
-          #ifdef DEBUG
-          double speed = std::stod(j[1]["speed"].get<string>());
-//          double angle = std::stod(j[1]["steering_angle"].get<string>());
-          #endif
+          double speed;
+//          double angle;
+          if(pid_debug) {
+            speed = std::stod(j[1]["speed"].get<string>());
+//            angle = std::stod(j[1]["steering_angle"].get<string>());
+          }
 
           double steer_value;
           /**
@@ -107,10 +213,8 @@ int main(int argc, char** argv) {
           // Get steering value
           steer_value = pid.TotalError();
 
-          // Apply twiddle to steering pid
-          if(steering_twiddle_enabled) {
-            pid.Twiddle(0.1);
-          }
+          // Apply twiddle to steering pid if enabled
+          pid.Twiddle();
 
           /**
            * Set the raw steering value as the throttle's 'cross track error'.
@@ -122,21 +226,19 @@ int main(int argc, char** argv) {
           pid_throttle.UpdateError(pid.TotalError());
           throttle = pid_throttle.ThrottleOutput();
 
-          // Apply twiddle to throttle pid
-          if(throttle_twiddle_enabled) {
-            pid_throttle.Twiddle();
-          }
+          // Apply twiddle to throttle pid if enabled
+          pid_throttle.Twiddle();
 
           // DEBUG
-          #ifdef DEBUG
-          double average_squared_err = pid.AverageSquaredError();
+          if(pid_debug) {
+            double average_squared_err = pid.AverageSquaredError();
 
-          std::cout << "CTE: " << cte << " Steering Value: " << steer_value
-                    << " Counter: " << pid.counter << " Avg Err: " << average_squared_err
-                    << " Speed: " << speed << " Throttle: " << throttle
-                    << std::endl;
-          #endif
-          
+            std::cout << "CTE: " << cte << " Steering Value: " << steer_value
+                      << " Counter: " << pid.counter << " Avg Err: " << average_squared_err
+                      << " Speed: " << speed << " Throttle: " << throttle
+                      << std::endl;
+          }
+
           if(pid.counter == 150) { ws.close(); }
 
           json msgJson;

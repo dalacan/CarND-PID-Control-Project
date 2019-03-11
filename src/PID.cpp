@@ -24,6 +24,24 @@ void PID::Init(double Kp_, double Ki_, double Kd_) {
   std::cout << "p: " << Kp << " i: " << Ki << " d: " << Kd  << std::endl;
 }
 
+void PID::InitTwiddle(double tol, int batch_size, double dp, double di, double dd) {
+  // Enabled twiddle
+  twiddle = true;
+
+  // Set twiddle parameters
+  twiddle_tolerance = tol;
+  batch_size = batch_size;
+
+  dp_p = dp;
+  dp_i = di;
+  dp_d = dd;
+}
+
+void PID::InitThrottle(double min_throttle, double max_throttle) {
+  min_throttle = min_throttle;
+  max_throttle = max_throttle;
+}
+
 void PID::UpdateError(double cte) {
   /**
    * Update PID errors based on cte.
@@ -57,7 +75,7 @@ double PID::SteeringOutput(double max_steering_angle) {
     return output;
 }
 
-double PID::ThrottleOutput(double min_throttle, double max_throttle) {
+double PID::ThrottleOutput() {
   /**
    * Calculate throttle output
    */
@@ -88,7 +106,7 @@ double PID::AverageSquaredError() {
   return total_error/counter;
 }
 
-void PID::Twiddle(double tolerance) {
+void PID::Twiddle() {
   if(twiddle) {
     std::cout << "counter: " << counter << " coeff: " << coeff << " substate: " << twiddle_state << " batch " << (counter % batch_size) << std::endl;
     std::cout << "p: " << Kp << " dp_p: " << dp_p
@@ -138,7 +156,7 @@ void PID::Twiddle(double tolerance) {
           twiddle_state = 0;
 
           // Check if coefficient modifier hit tolerance limit
-          TolerenceCheck(tolerance);
+          TolerenceCheck(twiddle_tolerance);
 
         } else {
           // Best error not found, decrement coefficient
@@ -169,7 +187,7 @@ void PID::Twiddle(double tolerance) {
         twiddle_state = 0;
 
         // Check if coefficient modifier hit tolerance limit
-        TolerenceCheck(tolerance);
+        TolerenceCheck(twiddle_tolerance);
       }
     }
   }
